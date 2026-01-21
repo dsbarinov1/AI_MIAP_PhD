@@ -12,57 +12,71 @@ class MIAPDataset(Dataset):
         return len(self.files)
 
     def get(self, idx):
-        # Загружаем словарь
         d = torch.load(os.path.join(self.root, self.files[idx]))
         
-        # 1. Создаем узлы (Constraints + Variables)
-        # У нас двудольный граф. В PyG проще всего сделать его однородным,
-        # объединив признаки и добавив тип узла.
+        row_feats = d['row_features'] 
+        col_feats = d['col_features'] 
         
-        row_feats = d['row_features'] # [Nc, Dc]
-        col_feats = d['col_features'] # [Nv, Dv]
+        # --- FIX 1: Positional Encodings (Координаты) ---
+        # Мы знаем, что n_size^3 = col_feats.shape[0] (если k=3)
+        # Вычислим N
+        num_vars = col_feats.shape[0]
+        N = round(num_vars ** (1/3)) 
         
-        # Паддинг признаков (чтобы объединить их в одну матрицу)
+        if N**3 != num_vars:
+            # На всякий случай, если вдруг размерность другая
+            # Просто добавим заглушки, чтобы не упало
+            pos_feats = torch.zeros(num_vars, 3)
+        else:
+            # Генерируем координаты i, j, k
+            indices = torch.arange(num_vars)
+            k_idx = indices % N
+            j_idx = (indices // N) % N
+            i_idx = indices // (N * N)
+            
+            # Нормализуем к [0, 1] и стакаем
+            pos_feats = torch.stack([i_idx, j_idx, k_idx], dim=1).float() / (N - 1)
+
+        # Добавляем координаты к фичам переменных
+        col_feats = torch.cat([col_feats, pos_feats], dim=1)
+        # ------------------------------------------------
+        
+        # --- FIX 2: Random Noise (для надежности) ---
+        # Оставим немного шума, чтобы совсем одинаковые ситуации различались
+        noise = torch.rand(col_feats.shape[0], 2) 
+        col_feats = torch.cat([col_feats, noise], dim=1)
+        # -------------------------------------------
+        
+        # Дальше стандартная сборка графа
         dim_c = row_feats.shape[1]
         dim_v = col_feats.shape[1]
         max_dim = max(dim_c, dim_v)
         
-        # Дополняем нулями
         row_padded = torch.cat([row_feats, torch.zeros(row_feats.shape[0], max_dim - dim_c)], dim=1)
         col_padded = torch.cat([col_feats, torch.zeros(col_feats.shape[0], max_dim - dim_v)], dim=1)
         
-        # Добавляем признак типа узла (1 = Variable, 0 = Constraint)
-        # Это важно, чтобы сеть различала их
         row_type = torch.zeros(row_feats.shape[0], 1)
         col_type = torch.ones(col_feats.shape[0], 1)
         
         x = torch.cat([
-            torch.cat([row_padded, row_type], dim=1), # Сначала ограничения
-            torch.cat([col_padded, col_type], dim=1)  # Потом переменные
+            torch.cat([row_padded, row_type], dim=1),
+            torch.cat([col_padded, col_type], dim=1)
         ], dim=0)
         
-        # 2. Ребра
-        # В исходных данных: [0] -> constraint, [1] -> variable
-        # Нам нужно сдвинуть индексы переменных на num_constraints
         num_cons = row_feats.shape[0]
+        u = d['edge_indices'][0]
+        v = d['edge_indices'][1] + num_cons
         
-        u = d['edge_indices'][0]            # Констрейнты (0..M-1)
-        v = d['edge_indices'][1] + num_cons # Переменные (M..M+N-1)
+        edge_index = torch.cat([
+            torch.stack([u, v], dim=0),
+            torch.stack([v, u], dim=0)
+        ], dim=1)
         
-        # Делаем граф неориентированным (GCN требует этого для прохода в обе стороны)
-        # C -> V
-        edge_index_fwd = torch.stack([u, v], dim=0)
-        # V -> C
-        edge_index_bwd = torch.stack([v, u], dim=0)
-        
-        edge_index = torch.cat([edge_index_fwd, edge_index_bwd], dim=1)
+        # Дублируем атрибуты ребер
         edge_attr = torch.cat([d['edge_attr'], d['edge_attr']], dim=0)
         
-        # 3. Target и Маска
-        # Target тоже сдвигаем, так как переменные теперь начинаются с num_cons
         y = d['label_var_idx'] + num_cons
         
-        # Маска кандидатов (тоже сдвигаем)
         cand_mask = torch.zeros(x.shape[0], dtype=torch.bool)
         cand_indices = d['candidates'] + num_cons
         cand_mask[cand_indices] = True
