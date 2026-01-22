@@ -1,6 +1,6 @@
 import os
 import torch
-from torch_geometric.data import Dataset, Data
+from torch_geometric.data import Dataset, HeteroData
 
 class MIAPDataset(Dataset):
     def __init__(self, root):
@@ -12,59 +12,53 @@ class MIAPDataset(Dataset):
         return len(self.files)
 
     def get(self, idx):
-        # Загружаем словарь
+        # Load dictionary
         d = torch.load(os.path.join(self.root, self.files[idx]))
         
-        # 1. Создаем узлы (Constraints + Variables)
-        # У нас двудольный граф. В PyG проще всего сделать его однородным,
-        # объединив признаки и добавив тип узла.
+        data = HeteroData()
         
-        row_feats = d['row_features'] # [Nc, Dc]
-        col_feats = d['col_features'] # [Nv, Dv]
+        # 1. Nodes and Features
+        # Constraints
+        data['constraint'].x = d['row_features']  # [Nc, Dc]
+        data['constraint'].num_nodes = d['row_features'].shape[0]
         
-        # Паддинг признаков (чтобы объединить их в одну матрицу)
-        dim_c = row_feats.shape[1]
-        dim_v = col_feats.shape[1]
-        max_dim = max(dim_c, dim_v)
+        # Variables
+        data['variable'].x = d['col_features']    # [Nv, Dv]
+        data['variable'].num_nodes = d['col_features'].shape[0]
         
-        # Дополняем нулями
-        row_padded = torch.cat([row_feats, torch.zeros(row_feats.shape[0], max_dim - dim_c)], dim=1)
-        col_padded = torch.cat([col_feats, torch.zeros(col_feats.shape[0], max_dim - dim_v)], dim=1)
+        # 2. Edges
+        # Input edge_indices is [2, E], Row 0 -> Cons, Row 1 -> Var
+        # We define edges as bidirectional for message passing
         
-        # Добавляем признак типа узла (1 = Variable, 0 = Constraint)
-        # Это важно, чтобы сеть различала их
-        row_type = torch.zeros(row_feats.shape[0], 1)
-        col_type = torch.ones(col_feats.shape[0], 1)
+        # Constraint -> Variable (if needed, though usually we strictly define flow in model)
+        # But GCN usually implies undirected.
+        # Gasse et al: C update uses V neighbors, V update uses C neighbors.
+        # We need both directions.
         
-        x = torch.cat([
-            torch.cat([row_padded, row_type], dim=1), # Сначала ограничения
-            torch.cat([col_padded, col_type], dim=1)  # Потом переменные
-        ], dim=0)
+        # Direction 1: Constraint -> Variable (or Variable -> Constraint)
+        # Usually edge_index describes "Source -> Target".
+        # d['edge_indices'][0] is C, [1] is V.
+        # So this is C connected to V.
         
-        # 2. Ребра
-        # В исходных данных: [0] -> constraint, [1] -> variable
-        # Нам нужно сдвинуть индексы переменных на num_constraints
-        num_cons = row_feats.shape[0]
+        # Let's define:
+        # (constraint, adj, variable): edges from C to V
+        data['constraint', 'adj', 'variable'].edge_index = d['edge_indices']
+        data['constraint', 'adj', 'variable'].edge_attr = d['edge_attr']
         
-        u = d['edge_indices'][0]            # Констрейнты (0..M-1)
-        v = d['edge_indices'][1] + num_cons # Переменные (M..M+N-1)
+        # (variable, adj, constraint): edges from V to C
+        data['variable', 'adj', 'constraint'].edge_index = d['edge_indices'].flip(0)
+        data['variable', 'adj', 'constraint'].edge_attr = d['edge_attr']
         
-        # Делаем граф неориентированным (GCN требует этого для прохода в обе стороны)
-        # C -> V
-        edge_index_fwd = torch.stack([u, v], dim=0)
-        # V -> C
-        edge_index_bwd = torch.stack([v, u], dim=0)
+        # 3. Target and Mask
+        # Target index is relative to Variables
+        # We store it as a property of the variable set (but it's one scalar per graph)
+        # To make it batch-friendly, we keep it as a 1-element tensor
+        data['variable'].y = d['label_var_idx'].unsqueeze(0) # [1]
         
-        edge_index = torch.cat([edge_index_fwd, edge_index_bwd], dim=1)
-        edge_attr = torch.cat([d['edge_attr'], d['edge_attr']], dim=0)
+        # Candidate Mask on Variables
+        num_vars = d['col_features'].shape[0]
+        cand_mask = torch.zeros(num_vars, dtype=torch.bool)
+        cand_mask[d['candidates']] = True
+        data['variable'].cand_mask = cand_mask
         
-        # 3. Target и Маска
-        # Target тоже сдвигаем, так как переменные теперь начинаются с num_cons
-        y = d['label_var_idx'] + num_cons
-        
-        # Маска кандидатов (тоже сдвигаем)
-        cand_mask = torch.zeros(x.shape[0], dtype=torch.bool)
-        cand_indices = d['candidates'] + num_cons
-        cand_mask[cand_indices] = True
-        
-        return Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y.unsqueeze(0), cand_mask=cand_mask)
+        return data
