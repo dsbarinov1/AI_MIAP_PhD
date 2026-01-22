@@ -13,7 +13,7 @@ class WeightedConv(MessagePassing):
         return x_j * edge_weight
 
 class BipartiteGCNLayer(nn.Module):
-    def __init__(self, hidden_dim, aggr='add'):
+    def __init__(self, hidden_dim, aggr='add', dropout=0.1):
         super().__init__()
 
         # If we use concatenation of aggregators (e.g. mean|max), hidden_dim would change.
@@ -23,12 +23,14 @@ class BipartiteGCNLayer(nn.Module):
         self.mlp_c = nn.Sequential(
             nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim),
         )
 
         self.mlp_v = nn.Sequential(
             nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim),
         )
 
@@ -52,7 +54,7 @@ class BipartiteGCNLayer(nn.Module):
         return x_c_new, x_v_new
 
 class GasseGCN(nn.Module):
-    def __init__(self, dim_cons, dim_vars, hidden_dim=64, num_layers=2, aggr='add'):
+    def __init__(self, dim_cons, dim_vars, hidden_dim=64, num_layers=2, aggr='add', dropout=0.1):
         super().__init__()
         
         self.cons_embedding = nn.Sequential(
@@ -72,12 +74,14 @@ class GasseGCN(nn.Module):
         )
         
         self.layers = nn.ModuleList([
-            BipartiteGCNLayer(hidden_dim, aggr=aggr) for _ in range(num_layers)
+            BipartiteGCNLayer(hidden_dim, aggr=aggr, dropout=dropout) for _ in range(num_layers)
         ])
         
         # Policy
+        # Input: Init (H) + Layers * (H) + Raw (D)
+        input_dim = hidden_dim * (num_layers + 1) + dim_vars
         self.policy = nn.Sequential(
-            nn.Linear(hidden_dim + dim_vars, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1)
         )
@@ -95,11 +99,16 @@ class GasseGCN(nn.Module):
         h_c = self.cons_embedding(x_c)
         h_v = self.vars_embedding(x_v)
         
+        # Jumping Knowledge: Collect embeddings from all layers
+        h_v_all = [h_v]
+
         for layer in self.layers:
             h_c, h_v = layer(h_c, h_v, edge_index_cv, edge_weight_cv, edge_index_vc, edge_weight_vc)
+            h_v_all.append(h_v)
             
-        # Skip Connection
-        h_v_final = torch.cat([h_v, x_v], dim=1)
+        # Concatenate all layer outputs + Raw Features
+        # h_v_all contains [Init, L1, L2, ...]
+        h_v_final = torch.cat(h_v_all + [x_v], dim=1)
 
         logits = self.policy(h_v_final).squeeze(-1)
         

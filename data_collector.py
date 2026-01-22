@@ -90,6 +90,7 @@ def collect_data(
                 "edge_indices": torch.tensor(obs.edge_features.indices, dtype=torch.long),
                 "edge_attr": torch.tensor(obs.edge_features.values, dtype=torch.float32).unsqueeze(1),
                 "label_var_idx": torch.tensor(best_var_idx, dtype=torch.long),
+                "scores": torch.tensor(scores, dtype=torch.float32), # Save RAW scores for Soft Targets
                 "candidates": torch.tensor(action_set.astype(np.int64), dtype=torch.long),
                 "type": ptype
             }

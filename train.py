@@ -16,15 +16,16 @@ def get_args():
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--hidden", type=int, default=64)
     parser.add_argument("--layers", type=int, default=3)
-    parser.add_argument("--aggr", type=str, default="max", choices=["add", "mean", "max"]) # Default to 'max' (best per experiments)
+    parser.add_argument("--aggr", type=str, default="max", choices=["add", "mean", "max"])
+    parser.add_argument("--loss", type=str, default="ranking", choices=["nll", "ranking"])
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
 
 def train():
     args = get_args()
-    print(f"--- Training on {args.device} (BS={args.batch_size}, Aggr={args.aggr}) ---")
+    print(f"--- Training on {args.device} (BS={args.batch_size}, Aggr={args.aggr}, Loss={args.loss}) ---")
     
-    writer = SummaryWriter(f"runs/miap_gasse_{args.aggr}")
+    writer = SummaryWriter(f"runs/miap_gasse_{args.aggr}_{args.loss}")
     
     # Use normalize=True and force_edge_one=True
     train_ds = MIAPDataset("dataset_train", force_edge_one=True, normalize=True)
@@ -64,13 +65,59 @@ def train():
             batch_idx = batch['variable'].batch
             probs = softmax(logits, batch_idx)
             
-            ptr = batch['variable'].ptr[:-1]
-            targets_local = batch['variable'].y.reshape(-1)
-            global_targets = ptr + targets_local
+            # ptr_full has N+1 elements [0, Size1, Size1+Size2, ...]
+            ptr_full = batch['variable'].ptr
+            ptr_start = ptr_full[:-1] # [0, Size1, ...]
             
-            target_probs = probs[global_targets]
-            loss = -torch.log(target_probs + 1e-9).mean()
+            targets_local = batch['variable'].y.reshape(-1) # Ensure 1D [B]
             
+            global_targets = ptr_start + targets_local
+
+            if args.loss == "nll":
+                target_probs = probs[global_targets]
+                loss = -torch.log(target_probs + 1e-9).mean()
+            else: # ranking
+                # Pairwise Ranking Loss
+                # We want Score(Target) > Score(NonTarget) + Margin
+                loss = 0
+                num_graphs = len(ptr_start)
+
+                # Iterate graphs (vectorizing this is hard due to variable number of candidates)
+                ptr_cpu = ptr_full.cpu().numpy()
+                targets_local_cpu = targets_local.cpu().numpy()
+                cands_mask = batch['variable'].cand_mask
+
+                for i in range(num_graphs):
+                    start, end = ptr_cpu[i], ptr_cpu[i+1] # Global indices for this graph
+
+                    # Graph logits
+                    g_logits = logits[start:end]
+
+                    # Target index (local)
+                    t_idx = targets_local_cpu[i]
+                    t_score = g_logits[t_idx]
+
+                    # Candidate mask for this graph
+                    g_cands = cands_mask[start:end]
+
+                    # Non-target candidates
+                    # Indices where g_cands is True AND idx != t_idx
+                    g_cands_indices = torch.nonzero(g_cands).squeeze(-1)
+                    nt_indices = g_cands_indices[g_cands_indices != t_idx]
+
+                    if len(nt_indices) > 0:
+                        nt_scores = g_logits[nt_indices]
+
+                        # Expand target score to match number of non-targets
+                        t_scores_expanded = t_score.expand_as(nt_scores)
+
+                        # Loss: max(0, -target + nontarget + margin)
+                        curr_loss = F.margin_ranking_loss(t_scores_expanded, nt_scores, torch.ones_like(nt_scores), margin=0.1)
+                        loss += curr_loss
+
+                if num_graphs > 0:
+                    loss = loss / num_graphs
+
             loss.backward()
             optimizer.step()
             loss_sum += loss.item()

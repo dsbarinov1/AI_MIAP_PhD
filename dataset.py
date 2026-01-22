@@ -14,9 +14,12 @@ class MIAPDataset(Dataset):
 
         # Load all into memory
         self.data_list = []
-        print(f"Loading {root} into memory...")
-        for f in tqdm(self.files):
-            self.data_list.append(self._process_file(f))
+        if len(self.files) > 0:
+            print(f"Loading {root} into memory...")
+            for f in tqdm(self.files):
+                self.data_list.append(self._process_file(f))
+        else:
+            print(f"Warning: {root} is empty.")
 
     def _process_file(self, filename):
         d = torch.load(os.path.join(self.root, filename))
@@ -50,6 +53,14 @@ class MIAPDataset(Dataset):
             data['variable', 'adj', 'constraint'].edge_attr = d['edge_attr']
 
         data['variable'].y = d['label_var_idx'].unsqueeze(0)
+
+        # Soft Scores
+        if 'scores' in d:
+            # Normalize scores? No, we do it in train loop (Softmax)
+            # But we might want to replace -inf with something valid if needed,
+            # though masking handles it.
+            data['variable'].scores = d['scores']
+
         num_vars = d['col_features'].shape[0]
         cand_mask = torch.zeros(num_vars, dtype=torch.bool)
         cand_mask[d['candidates']] = True
