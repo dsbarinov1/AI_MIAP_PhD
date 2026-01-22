@@ -1,6 +1,7 @@
 import os
 import torch
 from torch_geometric.data import Dataset, HeteroData
+from tqdm import tqdm
 
 class MIAPDataset(Dataset):
     def __init__(self, root, force_edge_one=True, normalize=True, simplify_features=False):
@@ -11,11 +12,14 @@ class MIAPDataset(Dataset):
         self.normalize = normalize
         self.simplify_features = simplify_features
 
-    def len(self):
-        return len(self.files)
+        # Load all into memory
+        self.data_list = []
+        print(f"Loading {root} into memory...")
+        for f in tqdm(self.files):
+            self.data_list.append(self._process_file(f))
 
-    def get(self, idx):
-        d = torch.load(os.path.join(self.root, self.files[idx]))
+    def _process_file(self, filename):
+        d = torch.load(os.path.join(self.root, filename))
         
         data = HeteroData()
         
@@ -27,12 +31,8 @@ class MIAPDataset(Dataset):
             col_x = col_x[:, indices]
         
         if self.normalize:
-            # Normalize Cost (Column 0) - Scale up
+            # Cost
             col_x[:, 0] = col_x[:, 0] * 10.0
-
-            # Normalize Structural features?
-            # Usually Log(Degree) is good.
-            # But let's stick to minimal changes that worked.
 
         data['constraint'].x = row_x
         data['variable'].x = col_x
@@ -56,3 +56,9 @@ class MIAPDataset(Dataset):
         data['variable'].cand_mask = cand_mask
         
         return data
+
+    def len(self):
+        return len(self.data_list)
+
+    def get(self, idx):
+        return self.data_list[idx]
