@@ -3,11 +3,13 @@ import torch
 from torch_geometric.data import Dataset, HeteroData
 
 class MIAPDataset(Dataset):
-    def __init__(self, root, force_edge_one=True):
+    def __init__(self, root, force_edge_one=True, normalize=True, simplify_features=False):
         super().__init__(root, None, None)
         self.root = root
         self.files = sorted([f for f in os.listdir(root) if f.endswith('.pt')])
         self.force_edge_one = force_edge_one
+        self.normalize = normalize
+        self.simplify_features = simplify_features
 
     def len(self):
         return len(self.files)
@@ -17,22 +19,28 @@ class MIAPDataset(Dataset):
         
         data = HeteroData()
         
-        # Nodes
-        # Gasse et al: Features are typically (Objective Coeff, Bounds, etc.)
-        # Here we take what Ecole gives us.
-        data['constraint'].x = d['row_features']
-        data['variable'].x = d['col_features']
+        row_x = d['row_features']
+        col_x = d['col_features']
         
-        # Edges
-        # C -> V
+        if self.simplify_features:
+            indices = [0, 8, 16]
+            col_x = col_x[:, indices]
+        
+        if self.normalize:
+            # Normalize Cost (Column 0) - Scale up
+            col_x[:, 0] = col_x[:, 0] * 10.0
+
+            # Normalize Structural features?
+            # Usually Log(Degree) is good.
+            # But let's stick to minimal changes that worked.
+
+        data['constraint'].x = row_x
+        data['variable'].x = col_x
+
         data['constraint', 'adj', 'variable'].edge_index = d['edge_indices']
-        
-        # V -> C
         data['variable', 'adj', 'constraint'].edge_index = d['edge_indices'].flip(0)
         
         if self.force_edge_one:
-            # Overwrite with 1.0 (Assuming unweighted constraints for Assignment Problem)
-            # This is robust against Ecole scaling artifacts
             num_edges = d['edge_indices'].shape[1]
             ones = torch.ones(num_edges, 1)
             data['constraint', 'adj', 'variable'].edge_attr = ones
@@ -41,7 +49,6 @@ class MIAPDataset(Dataset):
             data['constraint', 'adj', 'variable'].edge_attr = d['edge_attr']
             data['variable', 'adj', 'constraint'].edge_attr = d['edge_attr']
 
-        # Meta
         data['variable'].y = d['label_var_idx'].unsqueeze(0)
         num_vars = d['col_features'].shape[0]
         cand_mask = torch.zeros(num_vars, dtype=torch.bool)

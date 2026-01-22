@@ -15,7 +15,7 @@ def get_args():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--hidden", type=int, default=64)
-    parser.add_argument("--layers", type=int, default=2)
+    parser.add_argument("--layers", type=int, default=3) # Increased to 3
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
 
@@ -25,15 +25,14 @@ def train():
     
     writer = SummaryWriter("runs/miap_gasse_experiment")
     
-    # We use force_edge_one=True by default in Dataset as it proved better for MIAP
-    train_ds = MIAPDataset("dataset_train")
-    val_ds = MIAPDataset("dataset_val")
+    # Use normalize=True and force_edge_one=True
+    train_ds = MIAPDataset("dataset_train", force_edge_one=True, normalize=True)
+    val_ds = MIAPDataset("dataset_val", force_edge_one=True, normalize=True)
     
     if len(train_ds) == 0:
         print("Dataset is empty!")
         return
 
-    # Check dimensions from one sample
     sample = train_ds[0]
     dim_c = sample['constraint'].x.shape[1]
     dim_v = sample['variable'].x.shape[1]
@@ -58,19 +57,14 @@ def train():
             
             logits = model(batch)
             
-            # Masking non-candidates
             cand_mask = batch['variable'].cand_mask
             logits[~cand_mask] = -1e9
             
-            # Softmax per graph
             batch_idx = batch['variable'].batch
             probs = softmax(logits, batch_idx)
             
-            # Target Selection
-            # batch['variable'].ptr gives start index of each graph in the concatenated batch
             ptr = batch['variable'].ptr[:-1]
-            targets_local = batch['variable'].y.reshape(-1) # Ensure 1D [B]
-            
+            targets_local = batch['variable'].y.reshape(-1)
             global_targets = ptr + targets_local
             
             target_probs = probs[global_targets]
@@ -97,7 +91,6 @@ def train():
                 cand_mask = batch['variable'].cand_mask
                 logits[~cand_mask] = -1e9
                 
-                # Split back to graphs
                 ptr = batch['variable'].ptr.cpu().numpy()
                 targets = batch['variable'].y.reshape(-1).cpu().numpy()
                 logits_cpu = logits.cpu()

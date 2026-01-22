@@ -3,11 +3,8 @@ import torch.nn as nn
 from torch_geometric.nn import MessagePassing
 
 class WeightedSumConv(MessagePassing):
-    """
-    Computes sum_{j in N(i)} (e_{ij} * x_j)
-    """
     def __init__(self):
-        super().__init__(aggr='add') # Sum aggregation
+        super().__init__(aggr='add')
 
     def forward(self, x_source, edge_index, edge_weight, size=None):
         return self.propagate(edge_index, x=x_source, edge_weight=edge_weight, size=size)
@@ -19,7 +16,6 @@ class BipartiteGCNLayer(nn.Module):
     def __init__(self, hidden_dim):
         super().__init__()
 
-        # We concatenate x_self and x_msg, so input dim is 2 * hidden_dim
         self.mlp_c = nn.Sequential(
             nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -37,23 +33,16 @@ class BipartiteGCNLayer(nn.Module):
         self.norm_v = nn.LayerNorm(hidden_dim)
 
     def forward(self, x_c, x_v, edge_index_cv, edge_weight_cv, edge_index_vc, edge_weight_vc):
-        # 1. Aggregation
-        # Msg to C from V
         msg_to_c = self.conv(x_v, edge_index_vc, edge_weight_vc, size=(x_v.size(0), x_c.size(0)))
-
-        # Msg to V from C
         msg_to_v = self.conv(x_c, edge_index_cv, edge_weight_cv, size=(x_c.size(0), x_v.size(0)))
 
-        # 2. Update (Concat + MLP)
-        # C Update
         out_c = torch.cat([x_c, msg_to_c], dim=1)
         x_c_new = self.mlp_c(out_c)
-        x_c_new = self.norm_c(x_c_new) + x_c # Residual connection
+        x_c_new = self.norm_c(x_c_new) + x_c
 
-        # V Update
         out_v = torch.cat([x_v, msg_to_v], dim=1)
         x_v_new = self.mlp_v(out_v)
-        x_v_new = self.norm_v(x_v_new) + x_v # Residual connection
+        x_v_new = self.norm_v(x_v_new) + x_v
 
         return x_c_new, x_v_new
 
@@ -61,7 +50,6 @@ class GasseGCN(nn.Module):
     def __init__(self, dim_cons, dim_vars, hidden_dim=64, num_layers=2):
         super().__init__()
         
-        # 1. Embeddings
         self.cons_embedding = nn.Sequential(
             nn.Linear(dim_cons, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -78,14 +66,13 @@ class GasseGCN(nn.Module):
             nn.ReLU()
         )
         
-        # 2. GCN Layers
         self.layers = nn.ModuleList([
             BipartiteGCNLayer(hidden_dim) for _ in range(num_layers)
         ])
         
-        # 3. Policy Head
+        # Policy: Input is (Hidden + Raw Features)
         self.policy = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim + dim_vars, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1)
         )
@@ -106,6 +93,10 @@ class GasseGCN(nn.Module):
         for layer in self.layers:
             h_c, h_v = layer(h_c, h_v, edge_index_cv, edge_weight_cv, edge_index_vc, edge_weight_vc)
             
-        logits = self.policy(h_v).squeeze(-1)
+        # Concatenate Raw Features (Skip Connection)
+        # We need raw x_v. It's available.
+        h_v_final = torch.cat([h_v, x_v], dim=1)
+
+        logits = self.policy(h_v_final).squeeze(-1)
         
         return logits
