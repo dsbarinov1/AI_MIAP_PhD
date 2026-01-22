@@ -15,6 +15,7 @@ def get_args():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--hidden", type=int, default=64)
+    parser.add_argument("--layers", type=int, default=2)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
 
@@ -24,6 +25,7 @@ def train():
     
     writer = SummaryWriter("runs/miap_gasse_experiment")
     
+    # We use force_edge_one=True by default in Dataset as it proved better for MIAP
     train_ds = MIAPDataset("dataset_train")
     val_ds = MIAPDataset("dataset_val")
     
@@ -40,7 +42,7 @@ def train():
     train_loader = PyGDataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
     val_loader = PyGDataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
     
-    model = GasseGCN(dim_cons=dim_c, dim_vars=dim_v, hidden_dim=args.hidden).to(args.device)
+    model = GasseGCN(dim_cons=dim_c, dim_vars=dim_v, hidden_dim=args.hidden, num_layers=args.layers).to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     
     best_acc = 0.0
