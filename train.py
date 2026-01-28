@@ -1,6 +1,7 @@
 import os
 import argparse
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader as PyGDataLoader
@@ -9,36 +10,115 @@ from dataset import MIAPDataset
 from model import GasseGCN
 import numpy as np
 
+# --- Loss Functions ---
+def compute_ranking_loss(logits, batch, margin=0.1):
+    loss = 0
+    ptr = batch['variable'].ptr
+    targets_local = batch['variable'].y.reshape(-1)
+    cands_mask = batch['variable'].cand_mask
+
+    ptr_cpu = ptr.cpu().numpy()
+    targets_local_cpu = targets_local.cpu().numpy()
+
+    num_graphs = len(ptr) - 1
+
+    for i in range(num_graphs):
+        start, end = ptr_cpu[i], ptr_cpu[i+1]
+        g_logits = logits[start:end]
+        t_idx = targets_local_cpu[i]
+
+        # Candidate mask for this graph
+        g_cands = cands_mask[start:end]
+
+        # Get target score
+        t_score = g_logits[t_idx]
+
+        # Get non-target scores (candidates only)
+        # We need indices where cands=True but idx != t_idx
+        indices = torch.nonzero(g_cands).squeeze(-1)
+        nt_indices = indices[indices != t_idx]
+
+        if len(nt_indices) > 0:
+            nt_scores = g_logits[nt_indices]
+            t_score_exp = t_score.expand_as(nt_scores)
+            # max(0, -target + nontarget + margin)
+            loss += F.margin_ranking_loss(t_score_exp, nt_scores, torch.ones_like(nt_scores), margin=margin)
+
+    return loss / num_graphs
+
+def focal_loss(inputs, targets, alpha=0.25, gamma=2.0):
+    # inputs: Logits
+    # targets: 0/1 (same shape)
+    bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+    pt = torch.exp(-bce_loss)
+    f_loss = alpha * (1-pt)**gamma * bce_loss
+    return f_loss.mean()
+
+def compute_bce_loss(logits, batch, focal=False):
+    # Construct binary targets (1 for best, 0 for other candidates)
+    # We only care about Candidates.
+
+    mask = batch['variable'].cand_mask
+    logits_cands = logits[mask]
+
+    # Construct labels for these candidates
+    # We need to map global indices to local graph-wise comparison?
+    # Actually, simpler: create a global target vector
+
+    # 1. Create global target vector [N_nodes]
+    targets = torch.zeros_like(logits)
+
+    # Get global target indices
+    ptr = batch['variable'].ptr[:-1]
+    targets_local = batch['variable'].y.reshape(-1)
+    global_targets = ptr + targets_local
+
+    targets[global_targets] = 1.0
+
+    # 2. Filter by candidates
+    targets_cands = targets[mask]
+
+    # 3. Compute Loss
+    if focal:
+        return focal_loss(logits_cands, targets_cands)
+    else:
+        # Use pos_weight to handle imbalance?
+        # Typically 1 positive vs ~10-20 negatives.
+        pos_weight = torch.tensor([10.0], device=logits.device)
+        return F.binary_cross_entropy_with_logits(logits_cands, targets_cands, pos_weight=pos_weight)
+
+# --- Training ---
+
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--hidden", type=int, default=64)
     parser.add_argument("--layers", type=int, default=3)
-    parser.add_argument("--aggr", type=str, default="max", choices=["add", "mean", "max"])
-    parser.add_argument("--loss", type=str, default="ranking", choices=["nll", "ranking"])
+    parser.add_argument("--aggr", type=str, default="max", choices=["add", "mean", "max", "min", "cat"])
+    parser.add_argument("--loss", type=str, default="ranking", choices=["nll", "ranking", "bce", "focal"])
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--log_dir", type=str, default=None)
     return parser.parse_args()
 
 def train():
     args = get_args()
-    print(f"--- Training on {args.device} (BS={args.batch_size}, Aggr={args.aggr}, Loss={args.loss}) ---")
     
-    writer = SummaryWriter(f"runs/miap_gasse_{args.aggr}_{args.loss}")
+    run_name = f"miap_{args.aggr}_{args.loss}_L{args.layers}_H{args.hidden}"
+    log_dir = args.log_dir if args.log_dir else f"runs/{run_name}"
+
+    print(f"--- Training {run_name} on {args.device} ---")
+    writer = SummaryWriter(log_dir)
     
-    # Use normalize=True and force_edge_one=True
     train_ds = MIAPDataset("dataset_train", force_edge_one=True, normalize=True)
     val_ds = MIAPDataset("dataset_val", force_edge_one=True, normalize=True)
-    
-    if len(train_ds) == 0:
-        print("Dataset is empty!")
-        return
+
+    if len(train_ds) == 0: return
 
     sample = train_ds[0]
     dim_c = sample['constraint'].x.shape[1]
     dim_v = sample['variable'].x.shape[1]
-    print(f"Dims: Cons={dim_c}, Vars={dim_v}")
     
     train_loader = PyGDataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
     val_loader = PyGDataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
@@ -49,9 +129,12 @@ def train():
     best_acc = 0.0
     
     for epoch in range(args.epochs):
+        # --- TRAIN ---
         model.train()
-        loss_sum = 0
-        steps = 0
+        train_loss_sum = 0
+        train_acc1_sum = 0
+        train_acc5_sum = 0
+        train_steps = 0
         
         for batch in train_loader:
             batch = batch.to(args.device)
@@ -59,120 +142,133 @@ def train():
             
             logits = model(batch)
             
-            cand_mask = batch['variable'].cand_mask
-            logits[~cand_mask] = -1e9
-            
-            batch_idx = batch['variable'].batch
-            probs = softmax(logits, batch_idx)
-            
-            # ptr_full has N+1 elements [0, Size1, Size1+Size2, ...]
-            ptr_full = batch['variable'].ptr
-            ptr_start = ptr_full[:-1] # [0, Size1, ...]
-            
-            targets_local = batch['variable'].y.reshape(-1) # Ensure 1D [B]
-            
-            global_targets = ptr_start + targets_local
+            # For Accuracy Calculation (always needed)
+            with torch.no_grad():
+                logits_masked = logits.clone()
+                logits_masked[~batch['variable'].cand_mask] = -1e9
+                ptr = batch['variable'].ptr.cpu().numpy()
+                targets = batch['variable'].y.reshape(-1).cpu().numpy()
+                logits_cpu = logits_masked.cpu()
 
+                acc1 = 0
+                acc5 = 0
+                count = len(targets)
+
+                for i in range(len(ptr) - 1):
+                    start, end = ptr[i], ptr[i+1]
+                    g_logits = logits_cpu[start:end]
+                    target = targets[i]
+                    if torch.argmax(g_logits) == target: acc1 += 1
+                    k = min(5, len(g_logits))
+                    _, topk = torch.topk(g_logits, k)
+                    if target in topk: acc5 += 1
+
+                train_acc1_sum += (acc1 / count)
+                train_acc5_sum += (acc5 / count)
+
+            # Masking for Loss if needed
             if args.loss == "nll":
+                 logits[~batch['variable'].cand_mask] = -1e9
+
+            # Compute Loss
+            if args.loss == "nll":
+                probs = softmax(logits, batch['variable'].batch)
+                ptr = batch['variable'].ptr[:-1]
+                targets_local = batch['variable'].y.reshape(-1)
+                global_targets = ptr + targets_local
                 target_probs = probs[global_targets]
                 loss = -torch.log(target_probs + 1e-9).mean()
-            else: # ranking
-                # Pairwise Ranking Loss
-                # We want Score(Target) > Score(NonTarget) + Margin
-                loss = 0
-                num_graphs = len(ptr_start)
-
-                # Iterate graphs (vectorizing this is hard due to variable number of candidates)
-                ptr_cpu = ptr_full.cpu().numpy()
-                targets_local_cpu = targets_local.cpu().numpy()
-                cands_mask = batch['variable'].cand_mask
-
-                for i in range(num_graphs):
-                    start, end = ptr_cpu[i], ptr_cpu[i+1] # Global indices for this graph
-
-                    # Graph logits
-                    g_logits = logits[start:end]
-
-                    # Target index (local)
-                    t_idx = targets_local_cpu[i]
-                    t_score = g_logits[t_idx]
-
-                    # Candidate mask for this graph
-                    g_cands = cands_mask[start:end]
-
-                    # Non-target candidates
-                    # Indices where g_cands is True AND idx != t_idx
-                    g_cands_indices = torch.nonzero(g_cands).squeeze(-1)
-                    nt_indices = g_cands_indices[g_cands_indices != t_idx]
-
-                    if len(nt_indices) > 0:
-                        nt_scores = g_logits[nt_indices]
-
-                        # Expand target score to match number of non-targets
-                        t_scores_expanded = t_score.expand_as(nt_scores)
-
-                        # Loss: max(0, -target + nontarget + margin)
-                        curr_loss = F.margin_ranking_loss(t_scores_expanded, nt_scores, torch.ones_like(nt_scores), margin=0.1)
-                        loss += curr_loss
-
-                if num_graphs > 0:
-                    loss = loss / num_graphs
+            elif args.loss == "ranking":
+                loss = compute_ranking_loss(logits, batch)
+            elif args.loss == "bce":
+                loss = compute_bce_loss(logits, batch, focal=False)
+            elif args.loss == "focal":
+                loss = compute_bce_loss(logits, batch, focal=True)
 
             loss.backward()
             optimizer.step()
-            loss_sum += loss.item()
-            steps += 1
+            train_loss_sum += loss.item()
+            train_steps += 1
             
-        avg_loss = loss_sum / steps if steps else 0
+        avg_train_loss = train_loss_sum / train_steps
+        avg_train_acc1 = train_acc1_sum / train_steps
+        avg_train_acc5 = train_acc5_sum / train_steps
+        curr_lr = optimizer.param_groups[0]['lr']
         
         # --- VALIDATION ---
         model.eval()
-        val_acc1 = 0
-        val_acc5 = 0
-        val_count = 0
+        val_loss_sum = 0
+        val_acc1_sum = 0
+        val_acc5_sum = 0
+        val_steps = 0
         
         with torch.no_grad():
             for batch in val_loader:
                 batch = batch.to(args.device)
                 logits = model(batch)
                 
-                cand_mask = batch['variable'].cand_mask
-                logits[~cand_mask] = -1e9
+                # Validation Loss (using same metric as train for consistency)
+                if args.loss == "nll":
+                     logits_loss = logits.clone()
+                     logits_loss[~batch['variable'].cand_mask] = -1e9
+                     probs = softmax(logits_loss, batch['variable'].batch)
+                     ptr = batch['variable'].ptr[:-1]
+                     targets = batch['variable'].y.reshape(-1)
+                     global_targets = ptr + targets
+                     loss = -torch.log(probs[global_targets] + 1e-9).mean()
+                elif args.loss == "ranking":
+                    loss = compute_ranking_loss(logits, batch)
+                elif args.loss == "bce":
+                    loss = compute_bce_loss(logits, batch, focal=False)
+                elif args.loss == "focal":
+                    loss = compute_bce_loss(logits, batch, focal=True)
+
+                val_loss_sum += loss.item()
                 
+                # Accuracy
+                logits[~batch['variable'].cand_mask] = -1e9
                 ptr = batch['variable'].ptr.cpu().numpy()
                 targets = batch['variable'].y.reshape(-1).cpu().numpy()
                 logits_cpu = logits.cpu()
                 
+                acc1 = 0
+                acc5 = 0
+                count = len(targets)
                 for i in range(len(ptr) - 1):
                     start, end = ptr[i], ptr[i+1]
-                    graph_logits = logits_cpu[start:end]
+                    g_logits = logits_cpu[start:end]
                     target = targets[i]
-                    
-                    if torch.argmax(graph_logits) == target:
-                        val_acc1 += 1
-                        
-                    k = min(5, len(graph_logits))
-                    _, topk = torch.topk(graph_logits, k)
-                    if target in topk:
-                        val_acc5 += 1
-                        
-                    val_count += 1
+                    if torch.argmax(g_logits) == target: acc1 += 1
+                    k = min(5, len(g_logits))
+                    _, topk = torch.topk(g_logits, k)
+                    if target in topk: acc5 += 1
+
+                val_acc1_sum += (acc1 / count)
+                val_acc5_sum += (acc5 / count)
+                val_steps += 1
         
-        acc1 = val_acc1 / val_count if val_count else 0
-        acc5 = val_acc5 / val_count if val_count else 0
+        avg_val_loss = val_loss_sum / val_steps
+        avg_val_acc1 = val_acc1_sum / val_steps
+        avg_val_acc5 = val_acc5_sum / val_steps
         
-        print(f"Epoch {epoch+1}: Loss {avg_loss:.4f} | Val Acc@1: {acc1:.4f} | Val Acc@5: {acc5:.4f}")
+        print(f"Ep {epoch+1:02d} | "
+              f"T_Loss: {avg_train_loss:.4f} T_Acc@1: {avg_train_acc1:.4f} T_Acc@5: {avg_train_acc5:.4f} | "
+              f"V_Loss: {avg_val_loss:.4f} V_Acc@1: {avg_val_acc1:.4f} V_Acc@5: {avg_val_acc5:.4f} | "
+              f"LR: {curr_lr:.1e}")
         
-        writer.add_scalar("Train/Loss", avg_loss, epoch)
-        writer.add_scalar("Val/Acc_Top1", acc1, epoch)
-        writer.add_scalar("Val/Acc_Top5", acc5, epoch)
+        writer.add_scalar("Train/Loss", avg_train_loss, epoch)
+        writer.add_scalar("Train/Acc@1", avg_train_acc1, epoch)
+        writer.add_scalar("Train/Acc@5", avg_train_acc5, epoch)
+        writer.add_scalar("Val/Loss", avg_val_loss, epoch)
+        writer.add_scalar("Val/Acc@1", avg_val_acc1, epoch)
+        writer.add_scalar("Val/Acc@5", avg_val_acc5, epoch)
+        writer.add_scalar("Info/LR", curr_lr, epoch)
         
-        if acc1 > best_acc:
-            best_acc = acc1
-            torch.save(model.state_dict(), "best_model_gasse.pt")
+        if avg_val_acc1 > best_acc:
+            best_acc = avg_val_acc1
+            torch.save(model.state_dict(), f"best_model_{run_name}.pt")
 
     writer.close()
-    print(f"Best Val Acc@1: {best_acc:.4f}")
 
 if __name__ == "__main__":
     train()

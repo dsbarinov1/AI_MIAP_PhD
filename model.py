@@ -16,19 +16,31 @@ class BipartiteGCNLayer(nn.Module):
     def __init__(self, hidden_dim, aggr='add', dropout=0.1):
         super().__init__()
 
-        # If we use concatenation of aggregators (e.g. mean|max), hidden_dim would change.
-        # But for 'add', 'mean', 'max', it stays the same.
-        self.conv = WeightedConv(aggr=aggr)
+        self.aggr = aggr
+
+        # Determine message dimension
+        # If 'cat', we simulate mean || max, so message dim is 2 * hidden
+        # Otherwise it's 1 * hidden
+        if aggr == 'cat':
+            self.conv_mean = WeightedConv(aggr='mean')
+            self.conv_max = WeightedConv(aggr='max')
+            msg_dim = 2 * hidden_dim
+        else:
+            self.conv = WeightedConv(aggr=aggr)
+            msg_dim = hidden_dim
+
+        # MLP Input: Self (H) + Msg (msg_dim)
+        input_dim = hidden_dim + msg_dim
 
         self.mlp_c = nn.Sequential(
-            nn.Linear(2 * hidden_dim, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim),
         )
 
         self.mlp_v = nn.Sequential(
-            nn.Linear(2 * hidden_dim, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim),
@@ -38,8 +50,21 @@ class BipartiteGCNLayer(nn.Module):
         self.norm_v = nn.LayerNorm(hidden_dim)
 
     def forward(self, x_c, x_v, edge_index_cv, edge_weight_cv, edge_index_vc, edge_weight_vc):
-        msg_to_c = self.conv(x_v, edge_index_vc, edge_weight_vc, size=(x_v.size(0), x_c.size(0)))
-        msg_to_v = self.conv(x_c, edge_index_cv, edge_weight_cv, size=(x_c.size(0), x_v.size(0)))
+        if self.aggr == 'cat':
+            # Run mean
+            msg_to_c_mean = self.conv_mean(x_v, edge_index_vc, edge_weight_vc, size=(x_v.size(0), x_c.size(0)))
+            msg_to_v_mean = self.conv_mean(x_c, edge_index_cv, edge_weight_cv, size=(x_c.size(0), x_v.size(0)))
+
+            # Run max
+            msg_to_c_max = self.conv_max(x_v, edge_index_vc, edge_weight_vc, size=(x_v.size(0), x_c.size(0)))
+            msg_to_v_max = self.conv_max(x_c, edge_index_cv, edge_weight_cv, size=(x_c.size(0), x_v.size(0)))
+
+            # Concat
+            msg_to_c = torch.cat([msg_to_c_mean, msg_to_c_max], dim=1)
+            msg_to_v = torch.cat([msg_to_v_mean, msg_to_v_max], dim=1)
+        else:
+            msg_to_c = self.conv(x_v, edge_index_vc, edge_weight_vc, size=(x_v.size(0), x_c.size(0)))
+            msg_to_v = self.conv(x_c, edge_index_cv, edge_weight_cv, size=(x_c.size(0), x_v.size(0)))
 
         # Update C
         out_c = torch.cat([x_c, msg_to_c], dim=1)
