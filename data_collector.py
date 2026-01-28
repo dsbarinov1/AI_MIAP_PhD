@@ -116,5 +116,5 @@ def collect_data(
 if __name__ == "__main__":
     # Собираем 50 задач * 10 сэмплов = 500 сэмплов (быстро)
     # Или 100 задач * 20 сэмплов = 2000 сэмплов (лучше)
-    collect_data(500, "dataset_train", n_size=10, k_dim=3, samples_per_instance=20)
-    collect_data(100, "dataset_val", n_size=10, k_dim=3, samples_per_instance=20)
+    collect_data(300, "dataset_train", n_size=10, k_dim=4, samples_per_instance=20)
+    collect_data(100, "dataset_val", n_size=10, k_dim=4, samples_per_instance=20)
