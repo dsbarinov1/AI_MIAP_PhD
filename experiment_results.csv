@@ -1,0 +1,4 @@
+Aggr,Loss,Layers,Hidden,BatchSize,Status,LogDir
+add,nll,2,64,32,Success,runs/exp_add_nll_L2_H64_BS32
+add,nll,3,64,32,Success,runs/exp_add_nll_L3_H64_BS32
+add,ranking,2,64,32,Success,runs/exp_add_ranking_L2_H64_BS32
