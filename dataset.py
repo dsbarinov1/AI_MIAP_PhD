@@ -55,11 +55,15 @@ class MIAPDataset(Dataset):
         data['variable'].y = d['label_var_idx'].unsqueeze(0)
 
         # Soft Scores
+        # Ensure schema consistency: always present
         if 'scores' in d:
-            # Normalize scores? No, we do it in train loop (Softmax)
-            # But we might want to replace -inf with something valid if needed,
-            # though masking handles it.
             data['variable'].scores = d['scores']
+        else:
+            # Placeholder for schema consistency (e.g. for legacy data)
+            # Use -inf or 0? 0 is safer if masked, but consistency is key.
+            # Using same shape as variable features (num_vars)
+            num_vars = d['col_features'].shape[0]
+            data['variable'].scores = torch.zeros(num_vars, dtype=torch.float32)
 
         num_vars = d['col_features'].shape[0]
         cand_mask = torch.zeros(num_vars, dtype=torch.bool)
