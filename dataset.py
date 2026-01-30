@@ -60,6 +60,10 @@ class MIAPDataset(Dataset):
             # But we might want to replace -inf with something valid if needed,
             # though masking handles it.
             data['variable'].scores = d['scores']
+        else:
+            # Handle legacy data without scores
+            num_vars = col_x.shape[0]
+            data['variable'].scores = torch.full((num_vars,), -1e9, dtype=torch.float32)
 
         num_vars = d['col_features'].shape[0]
         cand_mask = torch.zeros(num_vars, dtype=torch.bool)

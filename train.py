@@ -91,10 +91,10 @@ def compute_bce_loss(logits, batch, focal=False):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--epochs", type=int, default=300)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--hidden", type=int, default=64)
+    parser.add_argument("--hidden", type=int, default=129)
     parser.add_argument("--layers", type=int, default=3)
     parser.add_argument("--aggr", type=str, default="max", choices=["add", "mean", "max", "min", "cat"])
     parser.add_argument("--loss", type=str, default="ranking", choices=["nll", "ranking", "bce", "focal"])

@@ -12,7 +12,8 @@ def collect_data(
     save_dir: str, 
     n_size: int = 10, 
     k_dim: int = 3,
-    time_limit: float = 60.0
+    time_limit: float = 60.0,
+    data_ctr: int = 0
 ):
     os.makedirs(save_dir, exist_ok=True)
     
@@ -41,7 +42,7 @@ def collect_data(
     )
     
     gen = MIAPGenerator(n=n_size, k=k_dim)
-    data_counter = 0
+    data_counter = data_ctr
     temp_file = f"temp_miap_{os.getpid()}.mps" 
 
     print(f"Starting collection in '{save_dir}' (N={n_size})...")
@@ -109,5 +110,5 @@ def collect_data(
 
 if __name__ == "__main__":
     # Запуск
-    collect_data(1000, "dataset_train", n_size=10, k_dim=3)
-    collect_data(200, "dataset_val", n_size=10, k_dim=3)
+    collect_data(4000, "dataset_train", n_size=10, k_dim=3, data_ctr=4426)
+    collect_data(1000, "dataset_val", n_size=10, k_dim=3, data_ctr=885)
