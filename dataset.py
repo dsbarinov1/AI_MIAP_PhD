@@ -55,10 +55,8 @@ class MIAPDataset(Dataset):
         data['variable'].y = d['label_var_idx'].unsqueeze(0)
 
         # Soft Scores
+        # Ensure schema consistency: always present
         if 'scores' in d:
-            # Normalize scores? No, we do it in train loop (Softmax)
-            # But we might want to replace -inf with something valid if needed,
-            # though masking handles it.
             data['variable'].scores = d['scores']
         else:
             # Handle legacy data without scores
