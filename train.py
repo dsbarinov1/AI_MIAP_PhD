@@ -97,22 +97,28 @@ def get_args():
     parser.add_argument("--hidden", type=int, default=129)
     parser.add_argument("--layers", type=int, default=3)
     parser.add_argument("--aggr", type=str, default="max", choices=["add", "mean", "max", "min", "cat"])
+    parser.add_argument("--activation", type=str, default="relu", choices=["relu", "leaky_relu", "tanh", "elu"])
     parser.add_argument("--loss", type=str, default="ranking", choices=["nll", "ranking", "bce", "focal"])
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--log_dir", type=str, default=None)
+    parser.add_argument("--tag", type=str, default=None)
+    parser.add_argument("--data_path", type=str, default="dataset", help="Base path for dataset (appends _train and _val)")
     return parser.parse_args()
 
 def train():
     args = get_args()
     
-    run_name = f"miap_{args.aggr}_{args.loss}_L{args.layers}_H{args.hidden}"
+    if args.tag != None:  
+        run_name = f"miap_{args.aggr}_{args.loss}_L{args.layers}_H{args.hidden}_{args.tag}"
+    else:
+        run_name = f"miap_{args.aggr}_{args.loss}_L{args.layers}_H{args.hidden}"
     log_dir = args.log_dir if args.log_dir else f"runs/{run_name}"
 
     print(f"--- Training {run_name} on {args.device} ---")
     writer = SummaryWriter(log_dir)
     
-    train_ds = MIAPDataset("dataset_train", force_edge_one=True, normalize=True)
-    val_ds = MIAPDataset("dataset_val", force_edge_one=True, normalize=True)
+    train_ds = MIAPDataset(f"{args.data_path}_train", force_edge_one=True, normalize=True)
+    val_ds = MIAPDataset(f"{args.data_path}_val", force_edge_one=True, normalize=True)
 
     if len(train_ds) == 0: return
 
@@ -120,11 +126,14 @@ def train():
     dim_c = sample['constraint'].x.shape[1]
     dim_v = sample['variable'].x.shape[1]
     
+    print(f"Detected dimensions -> Constraints: {dim_c}, Variables: {dim_v}")
+
     train_loader = PyGDataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
     val_loader = PyGDataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
     
-    model = GasseGCN(dim_cons=dim_c, dim_vars=dim_v, hidden_dim=args.hidden, num_layers=args.layers, aggr=args.aggr).to(args.device)
+    model = GasseGCN(dim_cons=dim_c, dim_vars=dim_v, hidden_dim=args.hidden, num_layers=args.layers, aggr=args.aggr, activation=args.activation).to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=10)
     
     best_acc = 0.0
     
@@ -250,11 +259,14 @@ def train():
         avg_val_loss = val_loss_sum / val_steps
         avg_val_acc1 = val_acc1_sum / val_steps
         avg_val_acc5 = val_acc5_sum / val_steps
+
+        # Step Scheduler
+        scheduler.step(avg_val_acc1)
         
         print(f"Ep {epoch+1:02d} | "
               f"T_Loss: {avg_train_loss:.4f} T_Acc@1: {avg_train_acc1:.4f} T_Acc@5: {avg_train_acc5:.4f} | "
               f"V_Loss: {avg_val_loss:.4f} V_Acc@1: {avg_val_acc1:.4f} V_Acc@5: {avg_val_acc5:.4f} | "
-              f"LR: {curr_lr:.1e}")
+              f"LR: {curr_lr:.1e}", flush=True)
         
         writer.add_scalar("Train/Loss", avg_train_loss, epoch)
         writer.add_scalar("Train/Acc@1", avg_train_acc1, epoch)

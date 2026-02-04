@@ -13,10 +13,21 @@ class WeightedConv(MessagePassing):
         return x_j * edge_weight
 
 class BipartiteGCNLayer(nn.Module):
-    def __init__(self, hidden_dim, aggr='add', dropout=0.1):
+    def __init__(self, hidden_dim, aggr='add', activation='relu', dropout=0.1):
         super().__init__()
 
         self.aggr = aggr
+        
+        if activation == 'relu':
+            self.act = nn.ReLU()
+        elif activation == 'leaky_relu':
+            self.act = nn.LeakyReLU()
+        elif activation == 'tanh':
+            self.act = nn.Tanh()
+        elif activation == 'elu':
+            self.act = nn.ELU()
+        else:
+            self.act = nn.ReLU()
 
         # Determine message dimension
         # If 'cat', we simulate mean || max, so message dim is 2 * hidden
@@ -34,14 +45,14 @@ class BipartiteGCNLayer(nn.Module):
 
         self.mlp_c = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
+            self.act,
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim),
         )
 
         self.mlp_v = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
+            self.act,
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim),
         )
@@ -79,27 +90,38 @@ class BipartiteGCNLayer(nn.Module):
         return x_c_new, x_v_new
 
 class GasseGCN(nn.Module):
-    def __init__(self, dim_cons, dim_vars, hidden_dim=64, num_layers=2, aggr='add', dropout=0.1):
+    def __init__(self, dim_cons, dim_vars, hidden_dim=64, num_layers=2, aggr='add', activation='relu', dropout=0.1):
         super().__init__()
+        
+        if activation == 'relu':
+            self.act = nn.ReLU()
+        elif activation == 'leaky_relu':
+            self.act = nn.LeakyReLU()
+        elif activation == 'tanh':
+            self.act = nn.Tanh()
+        elif activation == 'elu':
+            self.act = nn.ELU()
+        else:
+            self.act = nn.ReLU()
         
         self.cons_embedding = nn.Sequential(
             nn.Linear(dim_cons, hidden_dim),
             nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
+            self.act,
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU()
+            self.act
         )
         
         self.vars_embedding = nn.Sequential(
             nn.Linear(dim_vars, hidden_dim),
             nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
+            self.act,
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU()
+            self.act
         )
         
         self.layers = nn.ModuleList([
-            BipartiteGCNLayer(hidden_dim, aggr=aggr, dropout=dropout) for _ in range(num_layers)
+            BipartiteGCNLayer(hidden_dim, aggr=aggr, activation=activation, dropout=dropout) for _ in range(num_layers)
         ])
         
         # Policy
@@ -107,7 +129,7 @@ class GasseGCN(nn.Module):
         input_dim = hidden_dim * (num_layers + 1) + dim_vars
         self.policy = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
+            self.act,
             nn.Linear(hidden_dim, 1)
         )
         
