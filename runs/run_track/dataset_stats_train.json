@@ -1,0 +1,55 @@
+{
+  "dir": "dataset_smoke_train",
+  "num_samples": 3,
+  "num_loaded": 3,
+  "n_cons": {
+    "count": 3,
+    "min": 48,
+    "max": 48,
+    "mean": 48.0
+  },
+  "n_vars": {
+    "count": 3,
+    "min": 512,
+    "max": 512,
+    "mean": 512.0
+  },
+  "n_candidates": {
+    "count": 3,
+    "min": 12,
+    "max": 22,
+    "mean": 16.6667
+  },
+  "step_id": {
+    "count": 3,
+    "min": 0,
+    "max": 2,
+    "mean": 1.0
+  },
+  "step_id_distribution": {
+    "0": 1,
+    "1": 1,
+    "2": 1
+  },
+  "type_distribution": {
+    "random": 3
+  },
+  "n_size_distribution": {
+    "count": 3,
+    "min": 8,
+    "max": 8,
+    "mean": 8.0
+  },
+  "k_dim_distribution": {
+    "count": 3,
+    "min": 3,
+    "max": 3,
+    "mean": 3.0
+  },
+  "best_score": {
+    "count": 3,
+    "min": 7.223604769946069e-05,
+    "max": 0.0005873189928638505,
+    "mean": 0.0004
+  }
+}

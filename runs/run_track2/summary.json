@@ -1,0 +1,24 @@
+{
+  "config": {
+    "epochs": 2,
+    "batch_size": 32,
+    "lr": 0.0005,
+    "hidden": 128,
+    "device": "cpu",
+    "train_dir": "dataset_smoke_train",
+    "val_dir": "dataset_smoke_val",
+    "test_dir": null,
+    "save_path": "runs/run_track2/best.pt",
+    "log_dir": "runs/run_track2",
+    "seed": 42
+  },
+  "best_epoch": 1,
+  "best_val_acc1": 0.166667,
+  "final_epoch": 2,
+  "last_epoch_train_loss": 2.782624,
+  "train_dir": "dataset_smoke_train",
+  "val_dir": "dataset_smoke_val",
+  "log_dir": "runs/run_track2",
+  "save_path": "runs/run_track2/best.pt",
+  "test_dir": null
+}

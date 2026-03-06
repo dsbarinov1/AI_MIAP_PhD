@@ -1,0 +1,39 @@
+--- Training on cpu (BS=32, seed=42) ---
+Log dir: runs/run_track
+Dataset: 3 train, 6 val
+
+--- Dataset stats [train] dataset_smoke_train ---
+Dataset: dataset_smoke_train
+  num_samples: 3 (loaded: 3)
+  n_cons: {'count': 3, 'min': 48, 'max': 48, 'mean': 48.0}
+  n_vars: {'count': 3, 'min': 512, 'max': 512, 'mean': 512.0}
+  n_candidates: {'count': 3, 'min': 12, 'max': 22, 'mean': 16.6667}
+  step_id: {'count': 3, 'min': 0, 'max': 2, 'mean': 1.0}
+  n_size_distribution: {'count': 3, 'min': 8, 'max': 8, 'mean': 8.0}
+  best_score: {'count': 3, 'min': 7.223604769946069e-05, 'max': 0.0005873189928638505, 'mean': 0.0004}
+  type_distribution: {'random': 3}
+  step_id_distribution: {'0': 1, '1': 1, '2': 1}
+
+--- Dataset stats [val] dataset_smoke_val ---
+Dataset: dataset_smoke_val
+  num_samples: 6 (loaded: 6)
+  n_cons: {'count': 6, 'min': 49, 'max': 49, 'mean': 49.0}
+  n_vars: {'count': 6, 'min': 512, 'max': 512, 'mean': 512.0}
+  n_candidates: {'count': 6, 'min': 4, 'max': 21, 'mean': 14.8333}
+  step_id: {'count': 6, 'min': 0, 'max': 3, 'mean': 1.0}
+  n_size_distribution: {'count': 6, 'min': 8, 'max': 8, 'mean': 8.0}
+  best_score: {'count': 6, 'min': 4.5451608081466335e-06, 'max': 0.0009654333712791563, 'mean': 0.0002}
+  type_distribution: {'random': 6}
+  step_id_distribution: {'0': 3, '1': 1, '2': 1, '3': 1}
+Detected Input Dims: Cons=5, Vars=19
+Epoch 1/5: Loss 2.7826 | Train Acc@1: 0.0000 Acc@5: 0.6667 | Val Acc@1: 0.1667 Acc@5: 0.5000
+  -> new best val Acc@1, saved to runs/run_track/best.pt
+Epoch 2/5: Loss 2.7826 | Train Acc@1: 0.3333 Acc@5: 0.6667 | Val Acc@1: 0.1667 Acc@5: 0.3333
+Epoch 3/5: Loss 2.7824 | Train Acc@1: 0.3333 Acc@5: 1.0000 | Val Acc@1: 0.0000 Acc@5: 0.3333
+Epoch 4/5: Loss 2.7824 | Train Acc@1: 0.3333 Acc@5: 0.6667 | Val Acc@1: 0.0000 Acc@5: 0.3333
+Epoch 5/5: Loss 2.7823 | Train Acc@1: 0.3333 Acc@5: 0.6667 | Val Acc@1: 0.1667 Acc@5: 0.3333
+
+Best Val Acc@1: 0.1667 (epoch 1)
+Saved best model to: runs/run_track/best.pt
+Summary: runs/run_track\summary.json
+Epochs CSV: runs/run_track\epochs.csv

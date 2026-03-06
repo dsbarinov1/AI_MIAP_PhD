@@ -1,0 +1,8 @@
+# MIAP PhD — pip-installable dependencies
+# ecole and (optionally) SCIP are installed via conda in setup_env.sh
+numpy>=1.20
+torch>=2.0
+torch-geometric>=2.0
+pyscipopt>=4.0
+tqdm>=4.60
+tensorboard>=2.0

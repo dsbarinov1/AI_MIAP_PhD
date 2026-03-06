@@ -1,0 +1,84 @@
+{
+  "config": {
+    "num_instances": 6,
+    "n_size": 8,
+    "k_dim": 3,
+    "seed": 303,
+    "time_limit": 20.0,
+    "add_dirty_constraint": false,
+    "dirty_fraction": 0.1,
+    "checkpoint_path": "best_model_smoke.pt",
+    "dataset_dir": "dataset_smoke_val",
+    "batch_size": 32,
+    "device": "cpu",
+    "output_json": "baseline_smoke_results.json"
+  },
+  "default_scip_summary": {
+    "num_instances": 6,
+    "solved_ratio_status_based": 1.0,
+    "nodes": {
+      "count": 6,
+      "mean": 1.0,
+      "min": 1.0,
+      "max": 1.0
+    },
+    "solve_time_sec": {
+      "count": 6,
+      "mean": 0.11172283333333333,
+      "min": 0.012509,
+      "max": 0.580565
+    },
+    "wall_time_sec_total": 0.7181460857391357
+  },
+  "default_scip_records": [
+    {
+      "status": "optimal",
+      "nodes": 1,
+      "solve_time_sec": 0.580565,
+      "objective": 0.411578395224378,
+      "instance_id": 0,
+      "instance_type": "random"
+    },
+    {
+      "status": "optimal",
+      "nodes": 1,
+      "solve_time_sec": 0.018952,
+      "objective": 0.29201257846516226,
+      "instance_id": 1,
+      "instance_type": "random"
+    },
+    {
+      "status": "optimal",
+      "nodes": 1,
+      "solve_time_sec": 0.012509,
+      "objective": 6.38199274417752,
+      "instance_id": 2,
+      "instance_type": "euclidean"
+    },
+    {
+      "status": "optimal",
+      "nodes": 1,
+      "solve_time_sec": 0.017601,
+      "objective": 0.4171938942609642,
+      "instance_id": 3,
+      "instance_type": "random"
+    },
+    {
+      "status": "optimal",
+      "nodes": 1,
+      "solve_time_sec": 0.012633,
+      "objective": 5.8275977656881395,
+      "instance_id": 4,
+      "instance_type": "euclidean"
+    },
+    {
+      "status": "optimal",
+      "nodes": 1,
+      "solve_time_sec": 0.028076999999999998,
+      "objective": 0.18506443245734694,
+      "instance_id": 5,
+      "instance_type": "random"
+    }
+  ],
+  "imitation_checkpoint_metrics_error": "Error(s) in loading state_dict for GasseGCN:\n\tsize mismatch for cons_embedding.0.weight: copying a param with shape torch.Size([64, 5]) from checkpoint, the shape in current model is torch.Size([128, 5]).\n\tsize mismatch for cons_embedding.0.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for cons_embedding.1.weight: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for cons_embedding.1.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for cons_embedding.3.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for cons_embedding.3.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for vars_embedding.0.weight: copying a param with shape torch.Size([64, 19]) from checkpoint, the shape in current model is torch.Size([128, 19]).\n\tsize mismatch for vars_embedding.0.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for vars_embedding.1.weight: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for vars_embedding.1.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for vars_embedding.3.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for vars_embedding.3.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for conv1.lin_l.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for conv1.lin_l.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for conv1.lin_r.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for conv2.lin_l.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for conv2.lin_l.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for conv2.lin_r.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for conv3.lin_l.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for conv3.lin_l.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for conv3.lin_r.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for policy.0.weight: copying a param with shape torch.Size([64, 64]) from checkpoint, the shape in current model is torch.Size([128, 128]).\n\tsize mismatch for policy.0.bias: copying a param with shape torch.Size([64]) from checkpoint, the shape in current model is torch.Size([128]).\n\tsize mismatch for policy.2.weight: copying a param with shape torch.Size([1, 64]) from checkpoint, the shape in current model is torch.Size([1, 128])."
+}

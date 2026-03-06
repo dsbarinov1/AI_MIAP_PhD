@@ -33,9 +33,22 @@ python data_collector.py --num_instances 200 --save_dir dataset_val --split_name
 python data_collector.py --num_instances 200 --save_dir dataset_test --split_name test --seed 303 --n_size 10 --k_dim 3 --max_steps_per_instance 10
 ```
 ### 4) Обучение
+По умолчанию создаётся каталог `runs/miap_YYYYMMDD_HHMMSS` с артефактами:
+- `train.log` — полный лог (все принты)
+- `epochs.csv` — по эпохам: train_loss, train_acc1, train_acc5, val_acc1, val_acc5
+- `summary.json` — конфиг, best_epoch, best_val_acc1, при наличии `--test_dir` — test_acc1/acc5
+- `dataset_stats_train.json`, `dataset_stats_val.json` — статистика по данным перед обучением
+- лучшая модель сохраняется в этот же каталог (если не указан свой `--save_path`)
+
+С оценкой на тесте:
 ```powershell
-python train.py --train_dir dataset_train --val_dir dataset_val --epochs 100 --batch_size 32 --hidden 128 --lr 0.0005 --seed 101 --save_path best_model.pt
+python train.py --train_dir dataset_train --val_dir dataset_val --test_dir dataset_test --epochs 100 --batch_size 32 --seed 101
 ```
+Без теста (только train/val):
+```powershell
+python train.py --train_dir dataset_train --val_dir dataset_val --epochs 100 --batch_size 32 --hidden 128 --lr 0.0005 --seed 101
+```
+Статистика по датасету вручную: `python dataset_stats.py --dir dataset_train [--out dataset_train_stats.json]`
 ### 5) Baseline-оценка solver-level и (опционально) imitation-метрик
 ```powershell
 python evaluate_baselines.py --num_instances 50 --n_size 10 --k_dim 3 --seed 303 --time_limit 60 --output_json baseline_eval_results.json
