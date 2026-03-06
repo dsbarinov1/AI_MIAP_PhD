@@ -2,6 +2,43 @@ import os
 import torch
 from torch_geometric.data import Dataset, Data
 
+
+def observation_to_data(obs, action_set):
+    """
+    Convert Ecole NodeBipartite observation + action_set to a single PyG Data
+    in the same format as MIAPDataset.get(), so the GNN model receives identical input.
+    """
+    row_feats = torch.tensor(obs.row_features, dtype=torch.float32)
+    col_feats = torch.tensor(obs.variable_features, dtype=torch.float32)
+    dim_c, dim_v = row_feats.shape[1], col_feats.shape[1]
+    max_dim = max(dim_c, dim_v)
+
+    row_padded = torch.cat([row_feats, torch.zeros(row_feats.shape[0], max_dim - dim_c)], dim=1)
+    col_padded = torch.cat([col_feats, torch.zeros(col_feats.shape[0], max_dim - dim_v)], dim=1)
+    row_type = torch.zeros(row_feats.shape[0], 1)
+    col_type = torch.ones(col_feats.shape[0], 1)
+
+    x = torch.cat([
+        torch.cat([row_padded, row_type], dim=1),
+        torch.cat([col_padded, col_type], dim=1),
+    ], dim=0)
+
+    num_cons = row_feats.shape[0]
+    edge_indices = torch.tensor(obs.edge_features.indices, dtype=torch.long)
+    u, v = edge_indices[0], edge_indices[1] + num_cons
+    edge_index_fwd = torch.stack([u, v], dim=0)
+    edge_index_bwd = torch.stack([v, u], dim=0)
+    edge_index = torch.cat([edge_index_fwd, edge_index_bwd], dim=1)
+    edge_attr_raw = torch.tensor(obs.edge_features.values, dtype=torch.float32).unsqueeze(1)
+    edge_attr = torch.cat([edge_attr_raw, edge_attr_raw], dim=0)
+
+    action_set_t = torch.tensor(action_set, dtype=torch.long)
+    cand_mask = torch.zeros(x.shape[0], dtype=torch.bool)
+    cand_mask[action_set_t + num_cons] = True
+
+    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr, cand_mask=cand_mask, num_cons=num_cons)
+
+
 class MIAPDataset(Dataset):
     def __init__(self, root):
         super().__init__(root, None, None)
