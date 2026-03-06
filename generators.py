@@ -12,7 +12,9 @@ class MIAPGenerator:
     def __init__(self, n: int, k: int = 3, seed: int = 42):
         self.n = n
         self.k = k
+        self.seed = seed
         self.rng = np.random.default_rng(seed)
+        self.py_rng = random.Random(seed)
 
     def generate_random_uniform(self):
         """
@@ -61,7 +63,30 @@ class MIAPGenerator:
             
         return cost_tensor
 
-    def build_scip_model(self, cost_tensor):
+    def generate_known_optimum(self):
+        """
+        Generate an axial 3IAP instance with a known unique optimal solution (Grundel-Pardalos style).
+        One feasible assignment gets cost 0; all others get positive random cost.
+        For 3IAP a feasible solution is (i, pi(i), tau(i)) for i in 0..n-1 with permutations pi, tau.
+        Returns cost_tensor and the optimal assignment list [(i, pi(i), tau(i)), ...].
+        """
+        if self.k != 3:
+            raise NotImplementedError("known_optimum generator is for k=3 only")
+        pi = self.rng.permutation(self.n)
+        tau = self.rng.permutation(self.n)
+        shape = (self.n,) * self.k
+        cost_tensor = self.rng.random(shape)
+        for i in range(self.n):
+            cost_tensor[i, pi[i], tau[i]] = 0.0
+        optimal_assignment = [(i, int(pi[i]), int(tau[i])) for i in range(self.n)]
+        return cost_tensor, optimal_assignment
+
+    def build_scip_model(
+        self,
+        cost_tensor,
+        add_dirty_constraint: bool = False,
+        dirty_fraction: float = 0.1,
+    ):
         """
         Превращает тензор стоимости в PySCIPOpt модель.
         Добавляет переменные и жесткие ограничения:
@@ -110,9 +135,13 @@ class MIAPGenerator:
                 # Добавляем ограничение: sum(x...) == 1
                 model.addCons(pyscipopt.quicksum(vars_in_constraint) == 1, name=f"cons_dim{d}_idx{i}")
         
-        all_vars = list(vars_dict.values())
-        subset_vars = random.sample(all_vars, max(1, len(all_vars) // 10))
-        model.addCons(pyscipopt.quicksum(subset_vars) <= len(subset_vars) // 2, name="dirty_constraint")
+        if add_dirty_constraint:
+            all_vars = list(vars_dict.values())
+            subset_size = max(1, int(len(all_vars) * dirty_fraction))
+            subset_size = min(subset_size, len(all_vars))
+            subset_vars = self.py_rng.sample(all_vars, subset_size)
+            rhs = subset_size // 2
+            model.addCons(pyscipopt.quicksum(subset_vars) <= rhs, name="dirty_constraint")
 
         return model, vars_dict
 
